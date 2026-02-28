@@ -2,8 +2,11 @@
 
 A Telegram bot powered by **OpenClaw** and **Gemini** that helps users quickly understand YouTube videos through structured summaries, contextual Q&A, and multi-language support.
 
+Getting the Summary - 
 ![Bot Summary Demo](screenshots/{03C063ED-CBB1-42AB-A81E-C5A2D5342C1D}.png)
+In a different lanugage -
 ![Bot Translate](screenshots/{75370473-7E67-4481-8309-EB99A679BEA4}.png)
+Asking Questions -
 ![Bot Question](screenshots/{D7629B95-268F-4762-A9CA-E0751FDE5441}.png)
 
 
