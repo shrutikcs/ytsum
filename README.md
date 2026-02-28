@@ -1,59 +1,77 @@
-# 🎬 YouTube Summarizer & Q&A Bot
+# YouTube Summarizer & Q&A Bot
 
 A Telegram bot powered by **OpenClaw** and **Gemini** that helps users quickly understand YouTube videos through structured summaries, contextual Q&A, and multi-language support.
 
+![Bot Summary Demo](screenshots/bot_summary_demo.png)
+
 ---
 
-## OpenClaw Setup - 
-Use Linux/macOS/WSL - 
-curl -fsSL https://openclaw.ai/install.sh | bash
+## Diagrams
 
-openclaw onboard --install-daemon
+### First Request Flow
 
-setup with telegram and add your api key.
+```mermaid
+sequenceDiagram
+    participant U as User (Telegram)
+    participant O as OpenClaw Agent
+    participant Y as yt_helper.py
+    participant API as YouTube Transcript API
+    participant C as Cache (~/.ytsum_cache/)
+    participant G as Gemini 2.5 Flash
 
-skip adding all the skills and then run 
+    U->>O: Sends YouTube URL
+    O->>Y: python3 yt_helper.py fetch <url>
+    Y->>C: Check cache for video_id
+    alt Cache miss
+        Y->>API: Fetch transcript
+        API-->>Y: Raw transcript segments
+        Y->>Y: Chunk segments (~4000 chars each)
+        Y->>C: Save transcript + chunks as JSON
+    end
+    Y-->>O: JSON result (chunks, full_text, metadata)
+    O->>G: "Summarize this transcript: ..."
+    G-->>O: Structured summary
+    O->>Y: python3 yt_helper.py save_summary <id> <summary>
+    Y->>C: Save summary to cache
+    O-->>U: Formatted summary on Telegram
+```
 
-openclaw dashboard
+### Repeat Request Flow (Cached)
 
-Paste the SKILL.md file in home/<user>/.openclaw/workspace and command it to read the SKILL.md file.
+When another user (or the same user after a session restart) sends the same video:
 
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant O as Agent
+    participant Y as yt_helper.py
+    participant C as Cache
 
-## ✨ Features
+    U->>O: Same YouTube URL
+    O->>Y: python3 yt_helper.py fetch <url>
+    Y->>C: Check cache - HIT
+    C-->>Y: Cached JSON (with summary)
+    Y-->>O: JSON result (from_cache: true)
+    O->>Y: python3 yt_helper.py get_summary <id>
+    Y->>C: Read summary from cache
+    Y-->>O: Cached summary
+    O-->>U: Summary (zero Gemini API calls!)
+```
+
+---
+
+## Features
 
 | Feature | Description |
 |---------|-------------|
-| 📌 **Structured Summaries** | 5 key points, timestamps, and core takeaway |
-| 🧠 **Contextual Q&A** | Ask follow-up questions grounded in the transcript |
-| 🌐 **Multi-language** | English (default) + Hindi support |
-| ⚡ **Smart Caching** | File-based caching with 72h TTL |
-| ✂️ **Long Video Support** | Transcript chunking for videos of any length |
-| 🛡️ **Error Handling** | Invalid URLs, missing transcripts, etc. |
+| **Structured Summaries** | 5 key points, timestamps, and core takeaway |
+| **Contextual Q&A** | Ask follow-up questions grounded in the transcript |
+| **Multi-language** | English (default) + Multi-lingual support |
+| **Caching** | File-based caching with 72h TTL |
+| **Long Video Support** | Transcript chunking for videos of any length |
+| **Error Handling** | Invalid URLs, missing transcripts, graceful failures |
 
 ---
-
-## 🏗️ Architecture
-
-```
-┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
-│   User on        │────▶│   OpenClaw        │────▶│   Gemini        │
-│   Telegram       │     │   Agent           │     │   Flash API      │
-└──────────────────┘     └────────┬─────────┘     └──────────────────┘
-                                  │
-                         ┌────────▼─────────┐
-                         │   yt_helper.py    │
-                         │   (Python CLI)    │
-                         └────────┬─────────┘
-                                  │
-                    ┌─────────────┼─────────────┐
-                    ▼             ▼              ▼
-             ┌───────────┐ ┌──────────┐  ┌───────────┐
-             │ YouTube   │ │  JSON    │  │ Transcript │
-             │ Transcript│ │  Cache   │  │ Chunking   │
-             │ API       │ │  (.json) │  │ Engine     │
-             └───────────┘ └──────────┘  └───────────┘
-```
-
 
 
 ### How It Works
@@ -72,23 +90,25 @@ Paste the SKILL.md file in home/<user>/.openclaw/workspace and command it to rea
 |----------|-----------|
 | **OpenClaw Skill** (not plugin) | Simpler to develop and debug; SKILL.md teaches the agent behavior without code changes |
 | **File-based JSON cache** (not Redis/DB) | Zero external dependencies; human-readable; survives agent restarts |
-| **Transcript chunking** (not embeddings) | With 20 API calls/day, retrieval speed isn't the bottleneck. Simple chunking + LLM reasoning is sufficient |
-| **Agent-side summarization** (not separate API) | Saves API calls; Gemini handles the transcript in-context |
-| **Prompt-based translation** (not translation API) | No extra API cost; Gemini handles multilingual generation natively |
+| **Transcript chunking** (not embeddings) | Simple chunking + LLM reasoning is sufficient at this scale |
+| **Agent-side summarization** | Saves API calls; Gemini handles the transcript in-context |
+| **Prompt-based translation** | No extra API cost; Gemini handles multilingual generation natively |
 
 ---
 
-## 📁 Project Structure
+
+
+## Project Structure
 
 ```
 ytsum/                              # Project root
 ├── yt_helper.py                    # Main Python helper script
 ├── requirements.txt                # Python dependencies
+├── screenshots/                    # Demo screenshots
 └── README.md                       # This file
 
-~/.openclaw/workspace/skills/
-└── youtube-summarizer/
-    └── SKILL.md                    # OpenClaw skill definition
+~/.openclaw/workspace/
+└── SKILL.md                        # OpenClaw skill definition
 
 ~/.ytsum_cache/                     # Auto-created transcript cache
 ├── index.json                      # Cache metadata index
@@ -98,79 +118,65 @@ ytsum/                              # Project root
 
 ---
 
-## 🚀 Setup Instructions
+## Setup
 
 ### Prerequisites
 
 - **Python 3.12+**
-- **OpenClaw** installed and running ([docs.openclaw.ai](https://docs.openclaw.ai))
-- **Telegram bot** created via BotFather
-- **Gemini API key** configured in OpenClaw
+- **Linux / macOS / WSL**
+- **Telegram bot** created via [BotFather](https://t.me/BotFather)
+- **Gemini API key**
 
-### Step 1: Clone & Install Dependencies
+### 1. Install OpenClaw
 
 ```bash
-git clone <your-repo-url> ~/ytsum
+curl -fsSL https://openclaw.ai/install.sh | bash
+openclaw onboard --install-daemon
+```
+
+During onboard, connect your Telegram bot and add your Gemini API key. Skip adding skills for now.
+
+### 2. Clone & Install Dependencies
+
+```bash
+git clone https://github.com/shrutikcs/ytsum.git 
 cd ~/ytsum
 python3 -m pip install --break-system-packages youtube-transcript-api
 # Or with venv:
 # python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt
 ```
 
-### Step 2: Set Up OpenClaw Skill
+### 3. Set Up the Skill
 
-The skill file should be placed at:
-```
-~/.openclaw/workspace/skills/youtube-summarizer/SKILL.md
-```
+Copy `SKILL.md` to the OpenClaw workspace:
 
-If you cloned the repo, copy it:
 ```bash
-mkdir -p ~/.openclaw/workspace/skills/youtube-summarizer/
-cp ~/.openclaw/workspace/skills/youtube-summarizer/SKILL.md  # Already in place if setup via this project
+cp ~/ytsum/SKILL.md ~/.openclaw/workspace/SKILL.md
 ```
 
-### Step 3: Configure OpenClaw
+Then open the OpenClaw dashboard and instruct the agent to read the SKILL.md file:
 
-Ensure your `~/.openclaw/openclaw.json` has:
-```json
-{
-  "channels": {
-    "telegram": {
-      "enabled": true,
-      "botToken": "YOUR_TELEGRAM_BOT_TOKEN"
-    }
-  },
-  "agents": {
-    "defaults": {
-      "model": {
-        "primary": "google/gemini-2.5-flash"
-      }
-    }
-  }
-}
+```bash
+openclaw dashboard
 ```
 
-### Step 4: Start OpenClaw
+### 4. Start & Test
 
 ```bash
 openclaw
 ```
 
-Send `/start` to your bot on Telegram and complete the pairing.
+Send `/start` to your bot on Telegram to pair, then send any YouTube link:
 
-### Step 5: Test the Bot
-
-Send a YouTube link to your bot:
 ```
 https://www.youtube.com/watch?v=dQw4w9WgXcQ
 ```
 
 ---
 
-## 💬 Usage Examples
+## Usage
 
-### Sending a YouTube Link
+### Summarizing a Video
 
 **User sends:**
 ```
@@ -179,40 +185,32 @@ https://www.youtube.com/watch?v=XXXXX
 
 **Bot responds:**
 ```
-🎥 Video Title
-YouTube Video (XXXXX) | ⏱ 12.5 minutes | 🌐 en
+Video Title
+YouTube Video (XXXXX) | 12.5 minutes | en
 
-📌 5 Key Points
-1. First key insight (⏱ 0:45)
-2. Second key insight (⏱ 3:12)
-3. Third key insight (⏱ 5:30)
-4. Fourth key insight (⏱ 8:15)
-5. Fifth key insight (⏱ 10:42)
+5 Key Points
+1. First key insight (0:45)
+2. Second key insight (3:12)
+3. Third key insight (5:30)
+4. Fourth key insight (8:15)
+5. Fifth key insight (10:42)
 
-⏱ Important Timestamps
+Important Timestamps
 - 0:45 — Introduction to the topic
 - 3:12 — Main argument presented
 - 8:15 — Key example discussed
 
-🧠 Core Takeaway
+Core Takeaway
 [Concise paragraph with the main insight]
 ```
 
-### Asking Questions
+### Asking Follow-up Questions
 
-**User:** `What did he say about pricing?`
-
-**Bot:** `At 5:30, the speaker discusses pricing models. They mention that...`
-
-**User:** `What about customer retention?`
-
-**Bot:** `This topic is not covered in the video.`
-
-### Multi-language Support
-
-**User:** `Summarize in Hindi`
-
-**Bot responds in Hindi with the same structured format.**
+| User | Bot |
+|------|-----|
+| *"What did he say about pricing?"* | *"At 5:30, the speaker discusses pricing models..."* |
+| *"What about customer retention?"* | *"This topic is not covered in the video."* |
+| *"Summarize in Hindi"* | Responds in Hindi with the same structured format |
 
 ### Commands
 
@@ -224,9 +222,11 @@ YouTube Video (XXXXX) | ⏱ 12.5 minutes | 🌐 en
 
 ---
 
-## 🔧 How Transcript is Stored
+## Technical Details
 
-Transcripts are cached as JSON files in `~/.ytsum_cache/`:
+### Caching
+
+Transcripts and summaries are cached as JSON files in `~/.ytsum_cache/` with a **72-hour TTL**:
 
 ```json
 {
@@ -246,59 +246,22 @@ Transcripts are cached as JSON files in `~/.ytsum_cache/`:
 }
 ```
 
-**Cache TTL:** 72 hours. After expiry, transcript is re-fetched on next request.
+### Context Management
 
----
-
-## 📋 How Context is Managed
-
-| State | How Context Works |
-|-------|-------------------|
+| State | How It Works |
+|-------|--------------|
 | **In-session** | Full transcript in agent's conversation context window |
 | **Cross-session** | Agent reads cached transcript from disk via `yt_helper.py get_transcript` |
 | **Long videos** | Transcript chunked into ~4000-char segments with timestamp boundaries |
-| **Multiple videos** | Each video cached separately; agent asks user which video they're referencing |
+| **Multiple videos** | Each video cached separately; agent asks which one to reference |
 
----
+### Q&A Grounding Rules
 
-## ❓ How Questions are Answered
+- Only answers from transcript content (no hallucination)
+- Cites timestamps when possible
+- Never makes up information not in the transcript
 
-1. Agent retrieves transcript (from session context or cache)
-2. Searches for relevant sections based on user's question
-3. Generates answer citing specific timestamps
-4. If topic not found → responds: *"This topic is not covered in the video."*
-
-**Rules:**
-- ✅ Only answers from transcript content (no hallucination)
-- ✅ Cites timestamps when possible
-- ❌ Never makes up information
-
----
-
-## 🧩 Chunking, Caching
-
-| Technique | Used? | Rationale |
-|-----------|-------|-----------|
-| **File caching** | ✅ Yes | Transcripts + summaries cached as JSON files |
-| **Chunking** | ✅ Yes | ~4000-char chunks for long videos |
-| **Summary caching** | ✅ Yes | Generated summaries cached — zero API cost on repeat |
-
----
-
-## ⚠️ Edge Cases Handled
-
-| Edge Case | Handling |
-|-----------|----------|
-| Invalid YouTube URL | Returns clear error with supported URL formats |
-| No transcript available | Informs user that captions aren't enabled |
-| Non-English transcript | Auto-detects available languages and uses first available |
-| Very long video (>60 min) | Transcript truncated at ~25k tokens with warning |
-| Rate limiting | Caching minimizes API calls; 72h TTL on transcripts |
-| Network errors | Graceful error messages |
-
----
-
-## 📊 API Call Efficiency
+### API Call Efficiency
 
 With **20 Gemini API calls/day**, the architecture optimizes for minimal usage:
 
@@ -312,45 +275,19 @@ With **20 Gemini API calls/day**, the architecture optimizes for minimal usage:
 
 **Effective capacity:** ~10-15 unique interactions per day.
 
----
+### Edge Cases Handled
 
-## 🖼️ Screenshots
-
-### Bot in Action
-> User sends a YouTube link → Bot responds with a structured summary including key points, timestamps, and core takeaway.
-
-![Bot Summary Demo](screenshots/bot_summary_demo.png)
-
-### Sequence Diagram
-
-```mermaid
-sequenceDiagram
-    participant U as 👤 User (Telegram)
-    participant O as 🤖 OpenClaw Agent
-    participant Y as 🐍 yt_helper.py
-    participant API as 🌐 YouTube Transcript API
-    participant C as 📁 Cache (~/.ytsum_cache/)
-    participant G as ✨ Gemini 2.5 Flash
-
-    U->>O: Sends YouTube URL
-    O->>Y: python3 yt_helper.py fetch <url>
-    Y->>C: Check cache for video_id
-    alt Cache miss
-        Y->>API: Fetch transcript
-        API-->>Y: Raw transcript segments
-        Y->>Y: Chunk segments (~4000 chars each)
-        Y->>C: Save transcript + chunks as JSON
-    end
-    Y-->>O: JSON result (chunks, full_text, metadata)
-    O->>G: "Summarize this transcript: ..."
-    G-->>O: Structured summary
-    O->>Y: python3 yt_helper.py save_summary <id> <summary>
-    Y->>C: Save summary to cache
-    O-->>U: Formatted summary on Telegram
-```
+| Edge Case | Handling |
+|-----------|----------|
+| Invalid YouTube URL | Returns clear error with supported URL formats |
+| No transcript available | Informs user that captions aren't enabled |
+| Non-English transcript | Auto-detects available languages, uses first available |
+| Very long video (>60 min) | Transcript truncated at ~100K chars with warning |
+| Rate limiting | Caching minimizes API calls; 72h TTL on transcripts |
+| Network errors | Graceful error messages |
 
 ---
 
-## 📄 License
+## License
 
 MIT
